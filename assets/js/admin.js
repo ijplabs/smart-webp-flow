@@ -368,33 +368,100 @@
 		if (btnDryRun) {
 			btnDryRun.addEventListener('click', function () {
 				btnDryRun.disabled = true;
-				apiRequest('/content-sync/dry-run', 'POST', { chunk_size: 20 })
-					.then(function (res) {
-						btnDryRun.disabled = false;
-						if (res.success && res.result) {
-							renderDryRunPreview(res.result);
-							if (btnExecute && res.result.replacements > 0) {
-								btnExecute.disabled = false;
+				if (resultBox) {
+					resultBox.innerHTML = '<div class="alert-box alert-info">Running Dry-Run scan across all posts in database... Please wait.</div>';
+				}
+
+				const accumulated = {
+					dry_run: true,
+					scanned_posts: 0,
+					matched_posts: 0,
+					replacements: 0,
+					previews: []
+				};
+
+				function fetchDryRunBatch(lastId) {
+					apiRequest('/content-sync/dry-run', 'POST', { last_id: lastId, chunk_size: 25 })
+						.then(function (res) {
+							if (res.success && res.result) {
+								const batch = res.result;
+								accumulated.scanned_posts += (batch.scanned_posts || 0);
+								accumulated.matched_posts += (batch.matched_posts || 0);
+								accumulated.replacements += (batch.replacements || 0);
+								if (batch.previews && batch.previews.length) {
+									accumulated.previews = accumulated.previews.concat(batch.previews);
+								}
+
+								if (!batch.is_completed && batch.scanned_posts > 0) {
+									if (resultBox) {
+										resultBox.innerHTML = '<div class="alert-box alert-info">Scanning posts... Scanned ' + accumulated.scanned_posts + ' posts (Found ' + accumulated.replacements + ' replacements so far)...</div>';
+									}
+									fetchDryRunBatch(batch.last_id);
+								} else {
+									btnDryRun.disabled = false;
+									renderDryRunPreview(accumulated);
+									if (btnExecute && accumulated.replacements > 0) {
+										btnExecute.disabled = false;
+									}
+								}
+							} else {
+								btnDryRun.disabled = false;
 							}
-						}
-					});
+						})
+						.catch(function () {
+							btnDryRun.disabled = false;
+						});
+				}
+
+				fetchDryRunBatch(0);
 			});
 		}
 
 		if (btnExecute) {
 			btnExecute.addEventListener('click', function () {
-				if (!confirm('Proceed with permanent database content migration? (Rollback snapshots will be saved)')) {
+				if (!confirm('Proceed with permanent database content migration across all candidate posts? (Rollback snapshots will be saved)')) {
 					return;
 				}
 				btnExecute.disabled = true;
-				apiRequest('/content-sync/execute', 'POST', { chunk_size: 20 })
-					.then(function (res) {
-						btnExecute.disabled = false;
-						if (res.success && res.result) {
-							alert('Migration complete! Updated ' + res.result.updated_posts + ' posts with ' + res.result.replacements + ' image replacements.');
-							location.reload();
-						}
-					});
+				if (resultBox) {
+					resultBox.innerHTML = '<div class="alert-box alert-info">Migrating post content to WebP in database... Please do not close this window.</div>';
+				}
+
+				let totalUpdated = 0;
+				let totalReplacements = 0;
+				let totalScanned = 0;
+
+				function executeBatch(lastId) {
+					apiRequest('/content-sync/execute', 'POST', { last_id: lastId, chunk_size: 25 })
+						.then(function (res) {
+							if (res.success && res.result) {
+								const batch = res.result;
+								totalScanned += (batch.scanned_posts || 0);
+								totalUpdated += (batch.updated_posts || 0);
+								totalReplacements += (batch.replacements || 0);
+
+								if (!batch.is_completed && batch.scanned_posts > 0) {
+									if (resultBox) {
+										resultBox.innerHTML = '<div class="alert-box alert-info">Migrating in progress... Scanned ' + totalScanned + ' posts, updated ' + totalUpdated + ' posts (' + totalReplacements + ' replacements)...</div>';
+									}
+									executeBatch(batch.last_id);
+								} else {
+									btnExecute.disabled = false;
+									alert('Migration complete! Updated ' + totalUpdated + ' posts with ' + totalReplacements + ' image replacements across ' + totalScanned + ' scanned posts.');
+									location.reload();
+								}
+							} else {
+								btnExecute.disabled = false;
+								alert('Migration stopped due to an error.');
+							}
+						})
+						.catch(function (err) {
+							btnExecute.disabled = false;
+							alert('Error during migration: ' + err);
+						});
+				}
+
+				executeBatch(0);
 			});
 		}
 
