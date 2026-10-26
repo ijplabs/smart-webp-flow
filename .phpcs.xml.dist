@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<ruleset name="SmartWebPFlow WordPress Coding Standards">
+	<description>PHP_CodeSniffer ruleset for SmartWebPFlow WordPress plugin.</description>
+
+	<!-- Scan plugin files -->
+	<file>.</file>
+
+	<!-- Exclude dependencies and tests from scanning -->
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/dist/*</exclude-pattern>
+	<exclude-pattern>*/tests/*</exclude-pattern>
+
+	<!-- Arguments: Show progress, show sniff codes in all reports -->
+	<arg value="ps"/>
+	<arg name="colors"/>
+	<arg name="extensions" value="php"/>
+
+	<!-- Include official WordPress Coding Standards -->
+	<rule ref="WordPress-Core"/>
+	<rule ref="WordPress-Extra"/>
+
+	<!-- Exclude WordPress.Files.FileName for PSR-4 autoloaded classes in src/ -->
+	<rule ref="WordPress.Files.FileName">
+		<exclude-pattern>src/*</exclude-pattern>
+	</rule>
+
+	<!-- Set minimum supported PHP version to 7.4 -->
+	<config name="testVersion" value="7.4-"/>
+
+	<!-- Check textdomain validity -->
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="smart-webp-flow"/>
+			</property>
+		</properties>
+	</rule>
+
+	<!-- Allow custom post types & non-prefixed option names where intentionally designed -->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="smart_webp_flow"/>
+				<element value="SmartWebPFlow"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

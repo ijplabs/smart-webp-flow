@@ -1,0 +1,92 @@
+name: Release & Distribute
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+jobs:
+  build-and-release:
+    name: Build Production Package & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Extract Release Version
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="v${{ github.event.inputs.version }}"
+            VER="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            VER="${TAG#v}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "VERSION=$VER" >> $GITHUB_OUTPUT
+
+      - name: Build Clean Production ZIP
+        run: |
+          python3 -c '
+          import os, zipfile
+          slug = "smart-webp-flow"
+          dist_dir = "dist"
+          os.makedirs(dist_dir, exist_ok=True)
+          zip_path = os.path.join(dist_dir, f"{slug}.zip")
+          excluded = {".git", ".github", ".gitignore", "dist", "node_modules", "vendor", ".phpcs.xml.dist", ".env", "tests", "test-results"}
+          with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+              for root, dirs, files in os.walk("."):
+                  dirs[:] = [d for d in dirs if d not in excluded]
+                  for f in files:
+                      if f not in excluded and not f.startswith(".git"):
+                          fp = os.path.join(root, f)
+                          rel = os.path.relpath(fp, ".")
+                          z.write(fp, os.path.join(slug, rel))
+          '
+
+      - name: Compute SHA-256 Checksum
+        id: checksum
+        run: |
+          SHA=$(sha256sum dist/smart-webp-flow.zip | awk '{print $1}')
+          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+          echo "$SHA  smart-webp-flow.zip" > dist/smart-webp-flow.zip.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Smart WebP Flow & Media Sync ${{ steps.meta.outputs.TAG }}
+          tag_name: ${{ steps.meta.outputs.TAG }}
+          files: |
+            dist/smart-webp-flow.zip
+            dist/smart-webp-flow.zip.sha256
+          body: |
+            ## Smart WebP Flow & Media Sync ${{ steps.meta.outputs.TAG }}
+
+            Production release ready for WordPress installation.
+
+            ### Package Details
+            * **Slug**: `smart-webp-flow`
+            * **Version**: `${{ steps.meta.outputs.VERSION }}`
+            * **SHA-256**: `${{ steps.checksum.outputs.SHA256 }}`
+
+            ### Verification
+            ```bash
+            sha256sum -c smart-webp-flow.zip.sha256
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
