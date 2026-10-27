@@ -77,6 +77,13 @@ class Plugin {
 	private $post_content_service = null;
 
 	/**
+	 * LiteSpace updater service instance.
+	 *
+	 * @var Services\LiteSpaceUpdater|null
+	 */
+	private $updater_service = null;
+
+	/**
 	 * Admin page management instance.
 	 *
 	 * @var Admin\AdminPage|null
@@ -144,6 +151,10 @@ class Plugin {
 		$this->upload_service->register_hooks();
 		$this->metadata_service->register_hooks();
 		$this->post_content_service->register_hooks();
+
+		// Initialize LiteSpace auto-updater & licensing service.
+		$this->updater_service = new Services\LiteSpaceUpdater( $this->plugin_file, $this->version );
+		$this->updater_service->register_hooks();
 
 		// Initialize admin interface if in admin context.
 		if ( function_exists( 'is_admin' ) && is_admin() ) {
@@ -244,6 +255,15 @@ class Plugin {
 	 */
 	public function deactivate(): void {
 		delete_transient( Constants::TRANSIENT_BULK_LOCK );
+	}
+
+	/**
+	 * Gets LiteSpace updater service.
+	 *
+	 * @return Services\LiteSpaceUpdater|null
+	 */
+	public function get_updater_service(): ?Services\LiteSpaceUpdater {
+		return $this->updater_service;
 	}
 
 	/**
