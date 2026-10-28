@@ -7,6 +7,8 @@ import initWasm, {
   wasm_version,
 } from "../wasm/litespace_core.js";
 
+declare const LiteSpaceConfig: any;
+
 export interface LicenseAdminCardProps {
   productSlug: string;
   productName: string;
