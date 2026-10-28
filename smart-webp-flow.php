@@ -3,7 +3,7 @@
  * Plugin Name:       Smart WebP Flow & Media Sync
  * Plugin URI:        https://github.com/ijplabs/smart-webp-flow
  * Description:       Lightweight and modern WebP converter for WordPress. Converts JPG/PNG uploads automatically, provides background chunked bulk sync for existing media, and seamlessly updates post content references without website downtime.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            IJPLabs
@@ -22,10 +22,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define root plugin constants.
-define( 'SMART_WEBP_FLOW_VERSION', '1.0.0' );
+define( 'SMART_WEBP_FLOW_VERSION', '1.1.0' );
 define( 'SMART_WEBP_FLOW_FILE', __FILE__ );
 define( 'SMART_WEBP_FLOW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SMART_WEBP_FLOW_URL', plugin_dir_url( __FILE__ ) );
+
+// LiteSpace Public Key for Ed25519 Libsodium verification.
+// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound
+define( 'LITESPACE_SMART_WEBP_PUBLIC_KEY', '8a8209d3606b45692641807e48ce8fd9d604b6a04633469bd32a5fc6ad78bea1' );
 
 /**
  * Checks system requirements before loading the plugin.
@@ -85,9 +89,33 @@ if ( ! smart_webp_flow_check_requirements() ) {
 	return;
 }
 
+// Require LiteSpace License SDK.
+require_once SMART_WEBP_FLOW_DIR . 'includes/class-litespace-license.php';
+
 // Require and register the PSR-4 Autoloader.
 require_once SMART_WEBP_FLOW_DIR . 'src/Autoloader.php';
 \SmartWebPFlow\Autoloader::register();
+
+/**
+ * Returns the LiteSpace license manager singleton instance.
+ *
+ * @return \LiteSpace_License
+ */
+function smart_webp_flow_license(): \LiteSpace_License {
+	static $instance = null;
+	if ( null === $instance ) {
+		$api_url  = defined( 'LITESPACE_API_URL' ) ? LITESPACE_API_URL : 'https://api.litespace.id';
+		$instance = new \LiteSpace_License(
+			'smart-webp-flow',
+			'Smart WebP Flow & Media Sync',
+			SMART_WEBP_FLOW_VERSION,
+			LITESPACE_SMART_WEBP_PUBLIC_KEY,
+			SMART_WEBP_FLOW_FILE,
+			$api_url
+		);
+	}
+	return $instance;
+}
 
 /**
  * Returns the main plugin kernel instance.
@@ -111,6 +139,15 @@ register_deactivation_hook(
 	function () {
 		smart_webp_flow()->deactivate();
 	}
+);
+
+// Initialize LiteSpace License Gateway (Priority 5, before plugin kernel).
+add_action(
+	'plugins_loaded',
+	function () {
+		smart_webp_flow_license();
+	},
+	5
 );
 
 // Initialize plugin kernel.

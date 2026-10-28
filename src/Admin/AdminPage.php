@@ -41,6 +41,12 @@ class AdminPage {
 		add_action( 'admin_menu', array( $this, 'add_menu_page' ) );
 		add_action( 'admin_init', array( $this, 'handle_save_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+
+		// LiteSpace AJAX Actions.
+		add_action( 'wp_ajax_litespace_save_settings', array( $this, 'ajax_build_on_save' ) );
+		add_action( 'wp_ajax_litespace_sync_license', array( $this, 'ajax_sync_license' ) );
+		add_action( 'wp_ajax_litespace_deactivate_license', array( $this, 'ajax_deactivate_license' ) );
+		add_action( 'wp_ajax_litespace_save_compiled_css', array( $this, 'ajax_save_compiled_css' ) );
 	}
 
 	/**
@@ -100,6 +106,46 @@ class AdminPage {
 		);
 
 		wp_localize_script( 'smart-webp-flow-admin', 'smartWebPFlowData', $script_data );
+
+		// Enqueue LiteSpace React + WebAssembly Bundle.
+		wp_enqueue_script(
+			'smart-webp-flow-license-admin',
+			$plugin_url . 'assets/js/admin-license-bundle.js',
+			array( 'wp-element' ),
+			Constants::VERSION,
+			true
+		);
+
+		// Determine browser-accessible LiteSpace API URL.
+		$api_url = 'https://api.litespace.id';
+		if ( defined( 'LITESPACE_API_URL' ) && ! empty( LITESPACE_API_URL ) ) {
+			$api_url = LITESPACE_API_URL;
+		}
+
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$current_host = isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : '';
+		if ( 0 === strpos( $current_host, '192.168.' ) || 0 === strpos( $current_host, '127.0.0.1' ) || 0 === strpos( $current_host, 'localhost' ) ) {
+			$host_ip = explode( ':', $current_host )[0];
+			$api_url = 'http://' . $host_ip . ':3000';
+		}
+
+		$license_manager = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		$license_data    = $license_manager ? $license_manager->get_license_data() : null;
+
+		wp_localize_script(
+			'smart-webp-flow-license-admin',
+			'LiteSpaceConfig',
+			array(
+				'productSlug'        => Constants::LITESPACE_PRODUCT_SLUG,
+				'productName'        => 'Smart WebP Flow Pro',
+				'publicKey'          => Constants::LITESPACE_PUBLIC_KEY,
+				'apiUrl'             => esc_url_raw( $api_url ),
+				'wasmUrl'            => esc_url_raw( $plugin_url . 'assets/js/litespace_core_bg.wasm' ),
+				'initialLicenseData' => $license_data,
+				'nonce'              => wp_create_nonce( 'litespace_save_settings' ),
+				'ajaxUrl'            => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+			)
+		);
 	}
 
 	/**
@@ -147,6 +193,20 @@ class AdminPage {
 		$merged = array_merge( $current, $new_settings );
 		update_option( Constants::OPTION_SETTINGS, $merged );
 
+		// Execute Build-on-Save if LiteSpace Pro license is active.
+		$license_manager = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		if ( $license_manager && $license_manager->is_active() ) {
+			$build_res = $license_manager->build_and_save_artifacts( $merged, 'body { margin: 0; } .wp-block-image img { max-width: 100%; height: auto; }' );
+			if ( ! empty( $build_res['success'] ) ) {
+				add_settings_error(
+					'smart_webp_flow_messages',
+					'smart_webp_flow_built',
+					esc_html__( 'LiteSpace Build-on-Save: Critical CSS and runtime artifacts compiled successfully by Rust Core Engine.', 'smart-webp-flow' ),
+					'updated'
+				);
+			}
+		}
+
 		add_settings_error(
 			'smart_webp_flow_messages',
 			'smart_webp_flow_saved',
@@ -177,6 +237,9 @@ class AdminPage {
 		$audit_log = $migrator->get_audit_log();
 		$is_locked = $lock_mgr->is_locked();
 
+		$license_manager = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		$is_pro          = $license_manager && $license_manager->is_active();
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( wp_unslash( $_GET['tab'] ) ) : 'diagnostics';
 		?>
@@ -187,7 +250,13 @@ class AdminPage {
 					<?php esc_html_e( 'Smart WebP Flow & Media Sync', 'smart-webp-flow' ); ?>
 					<span class="plugin-version">v<?php echo esc_html( Constants::VERSION ); ?></span>
 				</h1>
-				<div>
+				<div style="display:flex;gap:8px;align-items:center;">
+					<?php if ( $is_pro ) : ?>
+						<span class="health-badge" style="background:#0284c7;color:#fff;">🛡️ <?php esc_html_e( 'LiteSpace Pro (Active)', 'smart-webp-flow' ); ?></span>
+					<?php else : ?>
+						<span class="health-badge badge-amber"><?php esc_html_e( 'LiteSpace Free Tier', 'smart-webp-flow' ); ?></span>
+					<?php endif; ?>
+
 					<?php if ( $is_locked ) : ?>
 						<span class="health-badge badge-amber"><?php esc_html_e( 'Worker Active (Locked)', 'smart-webp-flow' ); ?></span>
 					<?php else : ?>
@@ -216,6 +285,9 @@ class AdminPage {
 				</a>
 				<a href="#settings" class="nav-tab <?php echo ( 'settings' === $active_tab ) ? 'nav-tab-active' : ''; ?>" data-tab="settings">
 					<span class="dashicons dashicons-admin-generic" style="margin-right:4px;"></span><?php esc_html_e( 'Settings', 'smart-webp-flow' ); ?>
+				</a>
+				<a href="#license" class="nav-tab <?php echo ( 'license' === $active_tab ) ? 'nav-tab-active' : ''; ?>" data-tab="license">
+					<span class="dashicons dashicons-shield" style="margin-right:4px;"></span><?php esc_html_e( 'LiteSpace License & Pro', 'smart-webp-flow' ); ?>
 				</a>
 			</nav>
 
@@ -481,7 +553,176 @@ class AdminPage {
 					</form>
 				</div>
 			</div>
+
+			<!-- TAB 5: LiteSpace License & Cloud Pro -->
+			<div id="tab-license" class="smart-webp-tab-content <?php echo ( 'license' === $active_tab ) ? 'active' : ''; ?>">
+				<div class="webp-card" style="background:#171717;border:1px solid #262626;color:#ededed;padding:24px;">
+					<div id="litespace-license-root"></div>
+				</div>
+			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Synchronizes an activated license certificate into wp_options.
+	 *
+	 * @return void
+	 */
+	public function ajax_sync_license(): void {
+		check_ajax_referer( 'litespace_save_settings', 'nonce' );
+
+		if ( ! current_user_can( Constants::ADMIN_CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Unauthorized.', 'smart-webp-flow' ) ), 403 );
+		}
+
+		$license_key      = sanitize_text_field( wp_unslash( $_POST['license_key'] ?? '' ) );
+		$certificate_json = wp_unslash( $_POST['certificate_json'] ?? '' );
+		$signature        = sanitize_text_field( wp_unslash( $_POST['signature'] ?? '' ) );
+		$public_key       = sanitize_text_field( wp_unslash( $_POST['public_key'] ?? Constants::LITESPACE_PUBLIC_KEY ) );
+
+		if ( empty( $certificate_json ) || empty( $signature ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Invalid certificate or signature payload.', 'smart-webp-flow' ) ), 400 );
+		}
+
+		$license = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		if ( ! $license ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'License manager not available.', 'smart-webp-flow' ) ), 500 );
+		}
+
+		// Verify signature offline via Libsodium.
+		$is_valid = $license->verify_signature_offline( $certificate_json, $signature, $public_key );
+		if ( ! $is_valid ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Libsodium digital signature verification failed.', 'smart-webp-flow' ) ), 400 );
+		}
+
+		$cert_data = json_decode( $certificate_json, true );
+		$record    = array(
+			'license_key'      => $license_key,
+			'certificate_json' => $certificate_json,
+			'certificate'      => is_array( $cert_data ) ? $cert_data : array(),
+			'signature'        => $signature,
+			'public_key'       => $public_key,
+			'activated_at'     => time(),
+			'last_heartbeat'   => time(),
+		);
+
+		update_option( 'litespace_license_' . Constants::LITESPACE_PRODUCT_SLUG, $record, false );
+
+		wp_send_json_success(
+			array(
+				'message'     => esc_html__( 'License synchronized successfully.', 'smart-webp-flow' ),
+				'certificate' => $record['certificate'],
+			)
+		);
+	}
+
+	/**
+	 * Deactivates the LiteSpace license for this domain.
+	 *
+	 * @return void
+	 */
+	public function ajax_deactivate_license(): void {
+		check_ajax_referer( 'litespace_save_settings', 'nonce' );
+
+		if ( ! current_user_can( Constants::ADMIN_CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Unauthorized.', 'smart-webp-flow' ) ), 403 );
+		}
+
+		$license = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		if ( $license ) {
+			$license->deactivate();
+		} else {
+			delete_option( 'litespace_license_' . Constants::LITESPACE_PRODUCT_SLUG );
+		}
+
+		wp_send_json_success( array( 'message' => esc_html__( 'License deactivated successfully.', 'smart-webp-flow' ) ) );
+	}
+
+	/**
+	 * Build-on-Save AJAX handler offloading Critical CSS & configuration to LiteSpace Rust Engine.
+	 *
+	 * @return void
+	 */
+	public function ajax_build_on_save(): void {
+		check_ajax_referer( 'litespace_save_settings', 'nonce' );
+
+		if ( ! current_user_can( Constants::ADMIN_CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Unauthorized.', 'smart-webp-flow' ) ), 403 );
+		}
+
+		$license = function_exists( 'smart_webp_flow_license' ) ? smart_webp_flow_license() : null;
+		if ( ! $license || ! $license->is_active() ) {
+			wp_send_json_error(
+				array( 'message' => esc_html__( 'License is not active! Build-on-Save compilation requires an active LiteSpace Pro license.', 'smart-webp-flow' ) ),
+				403
+			);
+		}
+
+		$settings = get_option( Constants::OPTION_SETTINGS, array() );
+		$raw_css  = wp_unslash( $_POST['raw_css'] ?? 'body { margin: 0; } .wp-block-image img { max-width: 100%; height: auto; }' );
+
+		$result = $license->build_and_save_artifacts( $settings, $raw_css );
+		if ( empty( $result['success'] ) ) {
+			wp_send_json_error( array( 'message' => $result['message'] ?? esc_html__( 'Compilation failed.', 'smart-webp-flow' ) ), 500 );
+		}
+
+		wp_send_json_success(
+			array(
+				'message'   => esc_html__( 'Settings saved and Critical CSS successfully compiled by LiteSpace Rust Engine!', 'smart-webp-flow' ),
+				'artifacts' => $result['artifacts'] ?? array(),
+			)
+		);
+	}
+
+	/**
+	 * Saves compiled CSS artifacts dispatched by the React/Wasm UI.
+	 *
+	 * @return void
+	 */
+	public function ajax_save_compiled_css(): void {
+		check_ajax_referer( 'litespace_save_settings', 'nonce' );
+
+		if ( ! current_user_can( Constants::ADMIN_CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Unauthorized.', 'smart-webp-flow' ) ), 403 );
+		}
+
+		$raw_artifacts = wp_unslash( $_POST['artifacts'] ?? '' );
+		$artifacts     = json_decode( $raw_artifacts, true );
+
+		if ( ! is_array( $artifacts ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Invalid artifacts payload.', 'smart-webp-flow' ) ), 400 );
+		}
+
+		$upload_dir = '';
+		if ( function_exists( 'wp_upload_dir' ) ) {
+			$dirs       = wp_upload_dir();
+			$upload_dir = $dirs['basedir'] . '/litespace/static';
+		} else {
+			$upload_dir = defined( 'ABSPATH' ) ? ABSPATH . 'wp-content/uploads/litespace/static' : '/tmp/litespace/static';
+		}
+
+		if ( ! file_exists( $upload_dir ) ) {
+			wp_mkdir_p( $upload_dir );
+		}
+
+		if ( ! empty( $artifacts['assetFilename'] ) && ! empty( $artifacts['criticalCss'] ) ) {
+			$css_file = $upload_dir . '/' . sanitize_file_name( $artifacts['assetFilename'] );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			file_put_contents( $css_file, $artifacts['criticalCss'] );
+		}
+
+		$meta = array(
+			'build_hash'         => $artifacts['buildHash'] ?? '',
+			'asset_filename'     => $artifacts['assetFilename'] ?? '',
+			'critical_css'       => $artifacts['criticalCss'] ?? '',
+			'savings_percentage' => $artifacts['savingsPercentage'] ?? 0.0,
+			'compiled_at'        => $artifacts['compiledAt'] ?? time(),
+			'engine'             => $artifacts['engine'] ?? 'Rust Compiler',
+		);
+
+		update_option( 'litespace_static_' . Constants::LITESPACE_PRODUCT_SLUG, $meta, false );
+
+		wp_send_json_success( array( 'message' => esc_html__( 'Compiled artifacts saved successfully.', 'smart-webp-flow' ) ) );
 	}
 }

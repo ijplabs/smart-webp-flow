@@ -21,7 +21,17 @@ class Constants {
 	/**
 	 * Plugin version.
 	 */
-	const VERSION = '1.0.0';
+	const VERSION = '1.1.0';
+
+	/**
+	 * LiteSpace integration product slug.
+	 */
+	const LITESPACE_PRODUCT_SLUG = 'smart-webp-flow';
+
+	/**
+	 * LiteSpace official Ed25519 Public Key (Hex 64).
+	 */
+	const LITESPACE_PUBLIC_KEY = '8a8209d3606b45692641807e48ce8fd9d604b6a04633469bd32a5fc6ad78bea1';
 
 	/**
 	 * Minimum PHP version required.

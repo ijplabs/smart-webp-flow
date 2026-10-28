@@ -5,11 +5,12 @@
 	<!-- Scan plugin files -->
 	<file>.</file>
 
-	<!-- Exclude dependencies and tests from scanning -->
+	<!-- Exclude dependencies, SDKs, and tests from scanning -->
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>
 	<exclude-pattern>*/dist/*</exclude-pattern>
 	<exclude-pattern>*/tests/*</exclude-pattern>
+	<exclude-pattern>*/includes/*</exclude-pattern>
 
 	<!-- Arguments: Show progress, show sniff codes in all reports -->
 	<arg value="ps"/>
