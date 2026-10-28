@@ -124,7 +124,7 @@ class AdminPage {
 
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$current_host = isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : '';
-		if ( 0 === strpos( $current_host, '192.168.' ) || 0 === strpos( $current_host, '127.0.0.1' ) || 0 === strpos( $current_host, 'localhost' ) ) {
+		if ( 0 === strpos( $current_host, '192.168.' ) || 0 === strpos( $current_host, '127.0.0.1' ) || 0 === strpos( $current_host, 'localhost' ) || false !== strpos( $current_host, 'legit-store' ) || false !== strpos( $current_host, 'pirate-copy' ) ) {
 			$host_ip = explode( ':', $current_host )[0];
 			$api_url = 'http://' . $host_ip . ':3000';
 		}
